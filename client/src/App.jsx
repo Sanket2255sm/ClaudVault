@@ -1,214 +1,164 @@
-// ============================================
-// CloudVault Frontend API Layer
-// ============================================
+import { useEffect, useState } from "react";
+import {
+  apiGetFiles,
+  apiUploadFiles,
+  apiDeleteFiles,
+  apiGetFolders,
+  apiCreateFolder,
+  apiDeleteFolder,
+  apiGetFileStats,
+  apiGetActivity,
+} from "./api";
 
-// 🔥 Use environment variable (BEST PRACTICE)
-const API_BASE = import.meta.env.VITE_API_URL || "https://claudvault.onrender.com";
+export default function App() {
+  const [files, setFiles] = useState([]);
+  const [folders, setFolders] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [activity, setActivity] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
 
-// 👉 Final API URL
-const API = `${API_BASE}/api`;
+  // Initial Load
+  useEffect(() => {
+    loadAll();
+  }, []);
 
-// ---- Helper: get token ----
-const getToken = () => localStorage.getItem("cloudvault_token");
+  const loadAll = async () => {
+    try {
+      setLoading(true);
+      const [fileData, folderData, statsData, activityData] =
+        await Promise.all([
+          apiGetFiles(),
+          apiGetFolders(),
+          apiGetFileStats(),
+          apiGetActivity(),
+        ]);
 
-// ---- Helper: headers ----
-const getHeaders = (isJSON = true) => {
-  const headers = {};
-  if (isJSON) headers["Content-Type"] = "application/json";
-  const token = getToken();
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  return headers;
-};
+      setFiles(fileData.files || []);
+      setFolders(folderData.folders || []);
+      setStats(statsData || {});
+      setActivity(activityData.activity || []);
+    } catch (err) {
+      console.error("Load error:", err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-// ---- Helper: handle response ----
-const handleResponse = async (res) => {
-  const text = await res.text();
-  try {
-    const data = JSON.parse(text);
-    if (!res.ok) throw new Error(data.error || "Request failed");
-    return data;
-  } catch (err) {
-    throw new Error(text || "Invalid response from server");
-  }
-};
+  // Upload
+  const handleUpload = async (e) => {
+    try {
+      setLoading(true);
+      await apiUploadFiles(e.target.files);
+      await loadAll();
+    } catch (err) {
+      console.error(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-// ============================================
-// AUTH
-// ============================================
+  // Delete File
+  const handleDeleteFile = async (id) => {
+    try {
+      await apiDeleteFiles([id]);
+      setFiles((prev) => prev.filter((f) => f.id !== id));
+    } catch (err) {
+      console.error(err.message);
+    }
+  };
 
-export const apiRegister = async (name, email, password) => {
-  const res = await fetch(`${API}/auth/register`, {
-    method: "POST",
-    headers: getHeaders(),
-    body: JSON.stringify({ name, email, password }),
-  });
-  return handleResponse(res);
-};
+  // Create Folder
+  const handleCreateFolder = async () => {
+    if (!newFolderName.trim()) return;
+    try {
+      await apiCreateFolder(newFolderName);
+      setNewFolderName("");
+      await loadAll();
+    } catch (err) {
+      console.error(err.message);
+    }
+  };
 
-export const apiLogin = async (email, password) => {
-  const res = await fetch(`${API}/auth/login`, {
-    method: "POST",
-    headers: getHeaders(),
-    body: JSON.stringify({ email, password }),
-  });
-  return handleResponse(res);
-};
+  // Delete Folder
+  const handleDeleteFolder = async (id) => {
+    try {
+      await apiDeleteFolder(id);
+      setFolders((prev) => prev.filter((f) => f.id !== id));
+    } catch (err) {
+      console.error(err.message);
+    }
+  };
 
-export const apiGetMe = async () => {
-  const res = await fetch(`${API}/auth/me`, {
-    headers: getHeaders(false),
-  });
-  return handleResponse(res);
-};
+  return (
+    <div style={{ padding: 20, fontFamily: "Arial" }}>
+      <h1>☁️ CloudVault Dashboard</h1>
 
-// ============================================
-// FILES
-// ============================================
+      {/* Upload */}
+      <input type="file" multiple onChange={handleUpload} />
 
-export const apiGetFiles = async () => {
-  const res = await fetch(`${API}/files`, {
-    headers: getHeaders(false),
-  });
-  return handleResponse(res);
-};
+      {/* Create Folder */}
+      <div style={{ marginTop: 10 }}>
+        <input
+          type="text"
+          placeholder="New Folder Name"
+          value={newFolderName}
+          onChange={(e) => setNewFolderName(e.target.value)}
+        />
+        <button onClick={handleCreateFolder}>Create Folder</button>
+      </div>
 
-export const apiUploadFiles = async (files, folderId = null) => {
-  const formData = new FormData();
-  Array.from(files).forEach((file) => formData.append("files", file));
-  if (folderId) formData.append("folder_id", folderId);
+      {/* Loading */}
+      {loading && <p>Loading...</p>}
 
-  const res = await fetch(`${API}/files/upload`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${getToken()}`,
-    },
-    body: formData,
-  });
+      {/* Stats */}
+      {stats && (
+        <div style={{ marginTop: 20 }}>
+          <h3>📊 Stats</h3>
+          <p>Total Files: {stats.total_files || 0}</p>
+          <p>Total Size: {stats.total_size || 0}</p>
+        </div>
+      )}
 
-  return handleResponse(res);
-};
+      {/* Folders */}
+      <div style={{ marginTop: 20 }}>
+        <h3>📁 Folders</h3>
+        <ul>
+          {folders.map((folder) => (
+            <li key={folder.id}>
+              {folder.name}
+              <button onClick={() => handleDeleteFolder(folder.id)}>
+                Delete
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
 
-export const apiDeleteFiles = async (ids) => {
-  const res = await fetch(`${API}/files`, {
-    method: "DELETE",
-    headers: getHeaders(),
-    body: JSON.stringify({ ids }),
-  });
-  return handleResponse(res);
-};
+      {/* Files */}
+      <div style={{ marginTop: 20 }}>
+        <h3>📄 Files</h3>
+        <ul>
+          {files.map((file) => (
+            <li key={file.id}>
+              {file.name}
+              <button onClick={() => handleDeleteFile(file.id)}>
+                Delete
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
 
-export const apiRenameFile = async (id, name) => {
-  const res = await fetch(`${API}/files/${id}`, {
-    method: "PUT",
-    headers: getHeaders(),
-    body: JSON.stringify({ name }),
-  });
-  return handleResponse(res);
-};
-
-export const apiStarFile = async (id) => {
-  const res = await fetch(`${API}/files/${id}/star`, {
-    method: "PATCH",
-    headers: getHeaders(),
-  });
-  return handleResponse(res);
-};
-
-export const apiMoveFile = async (id, folderId) => {
-  const res = await fetch(`${API}/files/${id}/move`, {
-    method: "PATCH",
-    headers: getHeaders(),
-    body: JSON.stringify({ folder_id: folderId }),
-  });
-  return handleResponse(res);
-};
-
-// ============================================
-// FILE DOWNLOAD / PREVIEW
-// ============================================
-
-export const apiFetchFileBlob = async (id) => {
-  const res = await fetch(`${API}/files/${id}/download`, {
-    headers: {
-      Authorization: `Bearer ${getToken()}`,
-    },
-  });
-
-  if (!res.ok) throw new Error("Failed to fetch file");
-  const blob = await res.blob();
-  return URL.createObjectURL(blob);
-};
-
-export const getDownloadUrl = (id) => {
-  return `${API}/files/${id}/download?token=${getToken()}`;
-};
-
-export const getViewUrl = (userId, fileName) => {
-  return `${API}/uploads/${userId}/${fileName}?token=${getToken()}`;
-};
-
-export const apiGetFileStats = async () => {
-  const res = await fetch(`${API}/files/stats`, {
-    headers: getHeaders(false),
-  });
-  return handleResponse(res);
-};
-
-// ============================================
-// FOLDERS
-// ============================================
-
-export const apiGetFolders = async () => {
-  const res = await fetch(`${API}/folders`, {
-    headers: getHeaders(false),
-  });
-  return handleResponse(res);
-};
-
-export const apiCreateFolder = async (name) => {
-  const res = await fetch(`${API}/folders`, {
-    method: "POST",
-    headers: getHeaders(),
-    body: JSON.stringify({ name }),
-  });
-  return handleResponse(res);
-};
-
-export const apiDeleteFolder = async (id) => {
-  const res = await fetch(`${API}/folders/${id}`, {
-    method: "DELETE",
-    headers: getHeaders(),
-  });
-  return handleResponse(res);
-};
-
-// ============================================
-// PREFERENCES
-// ============================================
-
-export const apiGetPreferences = async () => {
-  const res = await fetch(`${API}/preferences`, {
-    headers: getHeaders(false),
-  });
-  return handleResponse(res);
-};
-
-export const apiUpdatePreferences = async (prefs) => {
-  const res = await fetch(`${API}/preferences`, {
-    method: "PUT",
-    headers: getHeaders(),
-    body: JSON.stringify(prefs),
-  });
-  return handleResponse(res);
-};
-
-// ============================================
-// ACTIVITY
-// ============================================
-
-export const apiGetActivity = async (limit = 20) => {
-  const res = await fetch(`${API}/activity?limit=${limit}`, {
-    headers: getHeaders(false),
-  });
-  return handleResponse(res);
-};
+      {/* Activity */}
+      <div style={{ marginTop: 20 }}>
+        <h3>📜 Activity</h3>
+        <ul>
+          {activity.map((act, index) => (
+            <li key={index}>{act.action}</li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
