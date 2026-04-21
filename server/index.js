@@ -82,6 +82,9 @@ app.get("/api/health", (req, res) => {
 // No static file serving needed here.
 
 // ---- Error handler ----
+app.get("/", (req, res) => {
+  res.send("☁️ CloudVault API is running 🚀");
+});
 app.use((err, req, res, next) => {
   console.error("Unhandled error:", err);
   if (err.code === "LIMIT_FILE_SIZE") {
