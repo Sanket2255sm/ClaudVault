@@ -1,164 +1,159 @@
 import { useEffect, useState } from "react";
 import {
+  apiLogin,
+  apiRegister,
+  apiGetMe,
   apiGetFiles,
   apiUploadFiles,
   apiDeleteFiles,
-  apiGetFolders,
-  apiCreateFolder,
-  apiDeleteFolder,
-  apiGetFileStats,
-  apiGetActivity,
 } from "./api";
 
-export default function App() {
+function App() {
+  const [user, setUser] = useState(null);
   const [files, setFiles] = useState([]);
-  const [folders, setFolders] = useState([]);
-  const [stats, setStats] = useState(null);
-  const [activity, setActivity] = useState([]);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
-  const [newFolderName, setNewFolderName] = useState("");
 
-  // Initial Load
+  // 🔹 Load user on refresh
   useEffect(() => {
-    loadAll();
+    loadUser();
   }, []);
 
-  const loadAll = async () => {
+  const loadUser = async () => {
     try {
-      setLoading(true);
-      const [fileData, folderData, statsData, activityData] =
-        await Promise.all([
-          apiGetFiles(),
-          apiGetFolders(),
-          apiGetFileStats(),
-          apiGetActivity(),
-        ]);
-
-      setFiles(fileData.files || []);
-      setFolders(folderData.folders || []);
-      setStats(statsData || {});
-      setActivity(activityData.activity || []);
-    } catch (err) {
-      console.error("Load error:", err.message);
-    } finally {
-      setLoading(false);
+      const data = await apiGetMe();
+      setUser(data.user);
+      loadFiles();
+    } catch {
+      setUser(null);
     }
   };
 
-  // Upload
+  const loadFiles = async () => {
+    try {
+      const data = await apiGetFiles();
+      setFiles(data.files || []);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // 🔹 Auth
+  const handleAuth = async () => {
+    setLoading(true);
+    try {
+      let res;
+      if (isLogin) {
+        res = await apiLogin(email, password);
+      } else {
+        res = await apiRegister(name, email, password);
+      }
+
+      localStorage.setItem("cloudvault_token", res.token);
+      await loadUser();
+    } catch (err) {
+      alert(err.message);
+    }
+    setLoading(false);
+  };
+
+  const logout = () => {
+    localStorage.removeItem("cloudvault_token");
+    setUser(null);
+    setFiles([]);
+  };
+
+  // 🔹 Upload
   const handleUpload = async (e) => {
+    const files = e.target.files;
+    if (!files.length) return;
+
     try {
-      setLoading(true);
-      await apiUploadFiles(e.target.files);
-      await loadAll();
+      await apiUploadFiles(files);
+      loadFiles();
     } catch (err) {
-      console.error(err.message);
-    } finally {
-      setLoading(false);
+      alert(err.message);
     }
   };
 
-  // Delete File
-  const handleDeleteFile = async (id) => {
+  // 🔹 Delete
+  const handleDelete = async (id) => {
     try {
       await apiDeleteFiles([id]);
-      setFiles((prev) => prev.filter((f) => f.id !== id));
+      loadFiles();
     } catch (err) {
-      console.error(err.message);
+      alert(err.message);
     }
   };
 
-  // Create Folder
-  const handleCreateFolder = async () => {
-    if (!newFolderName.trim()) return;
-    try {
-      await apiCreateFolder(newFolderName);
-      setNewFolderName("");
-      await loadAll();
-    } catch (err) {
-      console.error(err.message);
-    }
-  };
+  // ==========================
+  // 🔐 AUTH UI (UNCHANGED STYLE)
+  // ==========================
+  if (!user) {
+    return (
+      <div className="container">
+        <h1>CloudVault</h1>
 
-  // Delete Folder
-  const handleDeleteFolder = async (id) => {
-    try {
-      await apiDeleteFolder(id);
-      setFolders((prev) => prev.filter((f) => f.id !== id));
-    } catch (err) {
-      console.error(err.message);
-    }
-  };
+        {!isLogin && (
+          <input
+            placeholder="Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        )}
 
+        <input
+          placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+
+        <input
+          type="password"
+          placeholder="Password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+
+        <button onClick={handleAuth} disabled={loading}>
+          {loading ? "Loading..." : isLogin ? "Login" : "Register"}
+        </button>
+
+        <p onClick={() => setIsLogin(!isLogin)} style={{ cursor: "pointer" }}>
+          {isLogin ? "Create account" : "Already have account?"}
+        </p>
+      </div>
+    );
+  }
+
+  // ==========================
+  // 📁 DASHBOARD UI (SAME LOOK)
+  // ==========================
   return (
-    <div style={{ padding: 20, fontFamily: "Arial" }}>
-      <h1>☁️ CloudVault Dashboard</h1>
+    <div className="container">
+      <h1>Welcome, {user.name}</h1>
 
-      {/* Upload */}
+      <button onClick={logout}>Logout</button>
+
       <input type="file" multiple onChange={handleUpload} />
 
-      {/* Create Folder */}
-      <div style={{ marginTop: 10 }}>
-        <input
-          type="text"
-          placeholder="New Folder Name"
-          value={newFolderName}
-          onChange={(e) => setNewFolderName(e.target.value)}
-        />
-        <button onClick={handleCreateFolder}>Create Folder</button>
-      </div>
+      <h2>Your Files</h2>
 
-      {/* Loading */}
-      {loading && <p>Loading...</p>}
+      {files.length === 0 && <p>No files uploaded</p>}
 
-      {/* Stats */}
-      {stats && (
-        <div style={{ marginTop: 20 }}>
-          <h3>📊 Stats</h3>
-          <p>Total Files: {stats.total_files || 0}</p>
-          <p>Total Size: {stats.total_size || 0}</p>
-        </div>
-      )}
-
-      {/* Folders */}
-      <div style={{ marginTop: 20 }}>
-        <h3>📁 Folders</h3>
-        <ul>
-          {folders.map((folder) => (
-            <li key={folder.id}>
-              {folder.name}
-              <button onClick={() => handleDeleteFolder(folder.id)}>
-                Delete
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      {/* Files */}
-      <div style={{ marginTop: 20 }}>
-        <h3>📄 Files</h3>
-        <ul>
-          {files.map((file) => (
-            <li key={file.id}>
-              {file.name}
-              <button onClick={() => handleDeleteFile(file.id)}>
-                Delete
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      {/* Activity */}
-      <div style={{ marginTop: 20 }}>
-        <h3>📜 Activity</h3>
-        <ul>
-          {activity.map((act, index) => (
-            <li key={index}>{act.action}</li>
-          ))}
-        </ul>
-      </div>
+      <ul>
+        {files.map((file) => (
+          <li key={file.id}>
+            {file.name}
+            <button onClick={() => handleDelete(file.id)}>Delete</button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
+
+export default App;
